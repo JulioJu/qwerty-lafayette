@@ -57,6 +57,9 @@ klc:
   bksl: '2b	OEM_5'
   lsgt: '56	OEM_102'
 
+  # space bar
+  spce: '39	SPACE'
+
 osx:
   # digits
   ae01: 18  # 1
@@ -116,3 +119,5 @@ osx:
   bksl: 42  # \
   lsgt: 10  # <
 
+  # space bar
+  spce: 49

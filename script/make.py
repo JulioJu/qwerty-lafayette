@@ -83,6 +83,14 @@ CONFIG = {
     'geometry': 'ISO'
 }
 
+SPACEBAR = {
+    'shift':       " ",  # U+0020 SPACE
+    'altgr':       " ",  # U+0020 SPACE
+    'altgr_shift': " ",  # U+0020 SPACE
+    '1dk':         "'",  # U+0027 APOSTROPHE
+    '1dk_shift':   "'"   # U+0027 APOSTROPHE
+}
+
 GEOMETRY = yaml.load(openLocalFile('geometry.yaml'))
 DEAD_KEYS = yaml.load(openLocalFile('dead_keys.yaml'))
 KEY_CODES = yaml.load(openLocalFile('key_codes.yaml'))
@@ -108,7 +116,10 @@ LAYER_KEYS = [
     'ab06', 'ab07', 'ab08', 'ab09', 'ab10',
 
     '- Pinky keys',
-    'tlde', 'ae11', 'ae12', 'ad11', 'ad12', 'ac11', 'bksl', 'lsgt'
+    'tlde', 'ae11', 'ae12', 'ad11', 'ad12', 'ac11', 'bksl', 'lsgt',
+
+    '- Space bar',
+    'spce'
 ]
 
 
@@ -122,11 +133,12 @@ class Layout:
         self.dead_keys = {}  # dictionary subset of DEAD_KEYS
         self.dk_index = []   # ordered keys of the above dictionary
         self.meta = CONFIG   # default parameters, hardcoded
+        self.has_altgr = False
 
         # metadata: self.meta
         cfg = yaml.load(open(filePath))
         for k in cfg:
-            if k != 'base' and k != 'altgr':
+            if k != 'base' and k != 'altgr' and k != 'spacebar':
                 self.meta[k] = cfg[k]
         fileName = os.path.splitext(os.path.basename(filePath))[0]
         self.meta['name'] = cfg['name'] if 'name' in cfg else fileName
@@ -138,16 +150,44 @@ class Layout:
         # keyboard layers: self.layers & self.dead_keys
         rows = GEOMETRY[self.meta['geometry']]['rows']
         base = remove_spaces_before_combining_chars(cfg['base']).split('\n')
-        altgr = remove_spaces_before_combining_chars(cfg['altgr']).split('\n')
         self._parse_template(base, rows, 0)
         self._parse_template(base, rows, 2)
-        self._parse_template(altgr, rows, 4)
         self._parse_lafayette_keys()
+
+        # optional AltGr layer
+        if 'altgr' in cfg:
+            tmp = remove_spaces_before_combining_chars(cfg['altgr'])
+            self._parse_template(tmp.split('\n'), rows, 4)
+            self.has_altgr = True
+
+        # space bar
+        spc = SPACEBAR
+        if 'spacebar' in cfg:
+            for k in cfg['spacebar']:
+                spc[k] = cfg['spacebar'][k]
+        self.layers[0]['spce'] = ' '
+        self.layers[1]['spce'] = spc['shift']
+        self.layers[2]['spce'] = spc['1dk']
+        self.layers[3]['spce'] = spc['shift_1dk'] if 'shift_1dk' in spc \
+            else spc['1dk']
+        if self.has_altgr:
+            self.layers[4]['spce'] = spc['altgr']
+            self.layers[5]['spce'] = spc['altgr_shift']
 
         # active dead keys: self.dk_index
         for dk in DEAD_KEYS:
             if dk['char'] in self.dead_keys:
                 self.dk_index.append(dk['char'])
+
+        # 1dk behavior: alt_self (double-press), alt_space (1dk+space)
+        if LAFAYETTE_KEY in self.dead_keys:
+            odk = self.dead_keys[LAFAYETTE_KEY]
+            odk['alt_space'] = spc['1dk']
+            odk['alt_self'] = "'"
+            for key in self.layers[0]:
+                if self.layers[0][key] == LAFAYETTE_KEY:
+                    odk['alt_self'] = self.layers[2][key]
+                    break
 
     def _parse_lafayette_keys(self):
         """ populates the `base` and `alt` props for the Lafayette dead key """
@@ -292,11 +332,10 @@ class Layout:
                     desc = symbol
                     if symbol in self.dead_keys:
                         dk = self.dead_keys[symbol]
+                        desc = dk['alt_self']
                         if dk['char'] == LAFAYETTE_KEY:
-                            desc = dk['alt_space']
                             symbol = 'ISO_Level3_Latch'
                         else:
-                            desc = dk['alt_self']
                             symbol = 'dead_' + dk['name']
                     elif symbol in XKB_KEY_SYM \
                             and len(XKB_KEY_SYM[symbol]) <= maxLength:
@@ -310,7 +349,8 @@ class Layout:
                 description += ' ' + desc
                 symbols.append(symbol.ljust(maxLength))
 
-            s = 'key <{}> {{[ {}, {}, {}, {}],[ {}, {}]}};'
+            s = 'key <{}> {{[ {}, {}, {}, {}],[{}, {}]}};' if self.has_altgr \
+                else 'key <{}> {{[ {}, {}, {}, {}]}};'
             line = s.format(* [keyName.upper()] + symbols)
             if showDescription:
                 line += description.rstrip()
@@ -357,13 +397,21 @@ class Layout:
                     symbols.append('-1')
                 description += ' ' + desc
 
-            output.append('\t'.join([
-                KEY_CODES['klc'][keyName],     # scan code & virtual key
-                '1' if alpha else '0',         # affected by CapsLock?
-                symbols[0], symbols[1], '-1',  # base layer
-                symbols[2], symbols[3],        # altgr layer
-                description.strip()
-            ]))
+            if (self.has_altgr):
+                output.append('\t'.join([
+                    KEY_CODES['klc'][keyName],     # scan code & virtual key
+                    '1' if alpha else '0',         # affected by CapsLock?
+                    symbols[0], symbols[1], '-1',  # base layer
+                    symbols[2], symbols[3],        # altgr layer
+                    description.strip()
+                ]))
+            else:
+                output.append('\t'.join([
+                    KEY_CODES['klc'][keyName],     # scan code & virtual key
+                    '1' if alpha else '0',         # affected by CapsLock?
+                    symbols[0], symbols[1], '-1',  # base layer
+                    description.strip()
+                ]))
 
         return output
 
@@ -389,7 +437,9 @@ class Layout:
             else:
                 for i in range(len(dk['base'])):
                     appendLine(dk['base'][i], dk['alt'][i])
+
             output.append('')
+            output.append('// Space bar')
             appendLine('\u00a0', dk['alt_space'])
             appendLine('\u0020', dk['alt_space'])
 
@@ -419,6 +469,8 @@ class Layout:
             extLayer = self.layers[i + 2]
 
             for keyName in LAYER_KEYS:
+                if keyName.startswith('- Space') or keyName == 'spce':
+                    continue
                 if keyName.startswith('-'):
                     if len(output):
                         output.append('')
@@ -620,7 +672,8 @@ def make_layout(filePath):
 
     # Windows driver (the utf-8 template is converted to a utf-16le file)
     klc_path = 'dist/' + layout.meta['fileName'] + '.klc'
-    klc_out = openLocalFile('template.klc').read()
+    klc_tpl = 'template_altgr.klc' if layout.has_altgr else 'template.klc'
+    klc_out = openLocalFile(klc_tpl).read()
     klc_out = substitute_lines(klc_out, 'GEOMETRY_qwerty', layout_qwerty)
     klc_out = substitute_lines(klc_out, 'GEOMETRY_altgr', layout_altgr)
     klc_out = substitute_lines(klc_out, 'LAYOUT', layout.klc)
@@ -655,7 +708,8 @@ def make_layout(filePath):
 
     # Linux driver
     xkb_path = 'dist/' + layout.meta['fileName'] + '.xkb'
-    xkb_out = openLocalFile('template.xkb').read()
+    xkb_tpl = 'template_altgr.xkb' if layout.has_altgr else 'template.xkb'
+    xkb_out = openLocalFile(xkb_tpl).read()
     xkb_out = substitute_lines(xkb_out, 'GEOMETRY_qwerty', layout_qwerty)
     xkb_out = substitute_lines(xkb_out, 'GEOMETRY_altgr', layout_altgr)
     xkb_out = substitute_lines(xkb_out, 'LAYOUT', layout.xkb)
