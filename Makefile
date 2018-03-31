@@ -1,11 +1,14 @@
 all:
-	kalamine layout/*.yaml layout.dev/*.yaml
+	kalamine layouts/*.yaml
+	@echo
+	./xkb_patch.py lafayette
 
-qwerty:
-	kalamine layout/qwerty.yaml
-
-dvorak:
-	kalamine layout/dvorak.yaml
+install:
+	./dist/xkb/lafayette_install.sh
+	@echo
+	@echo "Successfully installed. Testable with one of the following:"
+	@echo "    setxkbmap fr -variant lafayette"
+	@echo "    setxkbmap fr -variant lafayette42"
 
 clean:
-	rm -f dist/*
+	rm -rf dist/*
